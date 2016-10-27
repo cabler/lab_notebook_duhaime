@@ -1,0 +1,726 @@
+---
+title: "Great Lakes Plastics 2014 Data"
+author: "Rachel Cable"
+date: "October 22, 2016"
+output:  
+  html_document:
+    code_folding: hide
+    highlight: haddock
+    keep_md: yes
+    number_sections: yes
+    toc: yes
+    toc_float:
+      collapsed: no
+      smooth_scroll: yes
+      toc_depth: 3
+---
+<!--BEGIN:  Set the global options and load packages-->
+
+```{r set-global-options, echo = FALSE}
+knitr::opts_chunk$set(eval = TRUE, 
+                      echo = TRUE, 
+                      cache = FALSE,
+                      include = TRUE,
+                      collapse = FALSE,
+                      dependson = NULL,
+                      engine = "R", # Chunks will always have R code, unless noted
+                      error = TRUE,
+                      fig.path="Figures/",  # Set the figure options
+                      fig.align = "center"
+                      #, 
+                      # fig.width = 6,
+                      # fig.height = 6
+                      )
+```
+
+```{r silent-packages, echo = FALSE, eval = TRUE, message=FALSE, include = FALSE}
+require(knitr)
+require(dplyr)
+require(ggplot2)
+require(DT)
+require(plotly)
+require(readr)
+require(splines)
+require(tidyr)
+require(reshape2)
+require(plyr)
+require(corrgram)
+require(sciplot)
+require(stats)
+require(tables)
+```
+
+<!--END:  Set the global options and load packages-->
+
+# Maps: 
+
+## Stations sampled in 2014
+
+![Lake Superior](superior_stations.jpg)
+
+
+![Lake Huron](huron_stations.jpg)
+
+
+![Lake Erie](erie_stations.jpg)
+
+
+## Plastic concentrations by size class
+
+![Pieces greater than 4750um in size](20160229_gl_gt4750_conc.jpg)
+
+![Pieces greater than 4750um in size with population density](20161025_gl_2014_gt4750_conc_pop.jpg)
+
+![Pieces 1000-4750um in size](20160229_gl_1000-4750_conc.jpg)
+
+![Pieces 1000-4750um in size with population density](20161025_gl_2014_1000-4750_conc_pop.jpg)
+
+![Pieces 100-1000um in size, Lake Erie only](20160229_gl_100-1000_conc.jpg)
+
+![Pieces 100-1000um in size, all lakes](20161022_gl_2014_100-1000_map.jpeg)
+
+![Pieces 100-1000um in size with population density](20161025_gl_2014_100-1000_conc_pop.jpg)
+
+# Plastic concentrations by trawl
+
+```{r import_20141005_gl_plastic_concentrations}
+gl.2014.all.conc <- read_csv("~/Box Sync/Duhaime Lab/R projects/gl_2014_count_data/20161021_gl_2014_conc_for_R.csv")
+```
+
+We currently have data for `r length(unique(gl.2014.all.conc$station))` stations and `r length(unique(gl.2014.all.conc$trawl))` trawls.
+
+```{r table_20141005_gl_plastic_concentrations}
+datatable(gl.2014.all.conc, 
+          options = list(pageLength = 10),
+          caption = "Total concentrations, long format"
+          )
+```
+
+Note that the NK 0009-2 100-1000um fragment concentration is an order of magnitude larger than all others; I believe this is a miscount on a difficult sample, so I'm taking the concentrations out of the data set.
+
+```{r data_removal_gl_2014_conc}
+
+remove_row_num <- which(gl.2014.all.conc$'trawl' == "NK 0009-2" & gl.2014.all.conc$'size_fraction_um' == "100-1000")
+
+gl.2014.all.conc[remove_row_num, 4:13] <- NA
+
+```
+
+```{r create_gl_2014_conc_wide_format}
+
+## Read in csv
+
+gl.2014.plastics.conc.df <- 
+  read.csv(file = "~/Box Sync/Duhaime Lab/R projects/gl_2014_count_data/20161021_gl_2014_conc_for_R.csv")
+
+## Remove data that is most likely incorrect
+remove_row_num <- which(gl.2014.plastics.conc.df$'trawl' == "NK 0009-2" & gl.2014.plastics.conc.df$'size_fraction_um' == "100-1000")
+
+gl.2014.plastics.conc.df[remove_row_num, 4:13] <- NA
+
+# Set factor levels for size fractions
+gl.2014.plastics.conc.df$size_fraction_um <- factor(gl.2014.plastics.conc.df$size_fraction_um, levels = c('100-1000', '1000-4750', '>4750'))
+
+## Create a wide database of just total counts by size class
+
+gl.2014.conc.dcast.df <- dcast(gl.2014.plastics.conc.df, station + trawl ~ size_fraction_um, value.var = 'total_conc_km2', fill = NA)
+
+gl.2014.conc.dcast.df <- gl.2014.conc.dcast.df[, c('station', 'trawl', '100-1000', '1000-4750', '>4750')]
+
+# head(gl.2014.conc.dcast.df)
+
+## Check classes of columns
+
+# sapply(gl.2014.conc.dcast.df, class)
+
+```
+
+```{r table_gl_2014_conc_wide}
+datatable(gl.2014.conc.dcast.df, options = list(
+  pageLength = 10,
+  autoWidth = TRUE),
+  caption = "Concentrations, wide format"
+) %>%
+  formatRound(c('100-1000','1000-4750','>4750'), 2)
+
+```
+
+# Data combined by station
+
+## Station plastic concentration means by size class
+
+```{r calc_gl_2014_conc_stn_means}
+
+## Create a dataframe of mean concentrations by station 
+
+gl.2014.conc.dcast.means.df <- dcast(gl.2014.plastics.conc.df, station ~ size_fraction_um, value.var = 'total_conc_km2', mean, na.rm = TRUE)
+
+gl.2014.conc.dcast.means.df <- gl.2014.conc.dcast.means.df[, c('station', '100-1000', '1000-4750', '>4750')]
+
+datatable(gl.2014.conc.dcast.means.df, 
+          options = list(
+            pageLength = 10,
+            autoWidth = TRUE),
+            caption = "Mean concentrations by station"
+) %>%
+  formatRound(c('100-1000','1000-4750','>4750'), 2)
+```
+
+```{r calc_gl_2014_mean_conc_stn_means_melt}
+
+## Create long format dataframe for plotting
+
+gl.2014.conc.melt.means.df <- melt(gl.2014.conc.dcast.means.df, id.vars = "station", variable.name = "size_fraction", value.name = "mean_station_concentration")
+
+gl.2014.conc.melt.means.df <- na.omit(gl.2014.conc.melt.means.df)
+
+# sapply(gl.2014.conc.melt.means.df, class)
+```
+
+```{r plot_gl_2014_mean_plastic_conc_by_size}
+
+fracpal <- c("#ebb444", "#1daf7e", "#8c1717")
+
+meanplot <- ggplot(
+  data = gl.2014.conc.melt.means.df, 
+  aes(x = size_fraction, y = mean_station_concentration))
+meanplot + 
+  geom_boxplot(aes(fill = size_fraction, alpha = .1), coef = 6) + 
+  scale_y_log10(breaks = c(100, 1000, 10000, 100000, 100000, 1000000)) + 
+  coord_trans(y = "log10") + 
+  labs(x= "", y = "Station mean plastic concentration (/km2)", title = "Station mean plastic concentrations", caption = "* Zero values (n = 23) removed for some reason, I can't figure out how to fix it right now") + 
+  expand_limits(y=100) + 
+  theme(axis.text.x = element_text(size = 12), axis.text.y = element_text(size = 10), axis.title.y = element_text(size = 12), plot.title = element_text(size = 14)) + 
+  scale_fill_manual(values = fracpal) + 
+  theme(legend.position="none")
+
+```
+
+* Zero values (n = 23) removed for some reason, I can't figure out how to fix it right now
+
+```{r summarize_gl_2014_station_mean_sd_by_size}
+## Create table of means/sd's of station means
+
+ddply(gl.2014.conc.melt.means.df, 
+      ~ size_fraction, 
+      plyr::summarize, 
+      mean=mean(mean_station_concentration), 
+      sd=sd(mean_station_concentration), 
+      min=min(mean_station_concentration), 
+      max = max(mean_station_concentration)
+      )
+
+```
+
+```{r pairwisettest_gl_2014_station_mean_conc}
+
+pairwise.t.test(x = gl.2014.conc.melt.means.df$mean_station_concentration, g = gl.2014.conc.melt.means.df$size_fraction, p.adj = "bonf")
+
+```
+
+## Standard deviation in within station mean concentrations
+
+```{r calc_gl_2014_conc_stn_stdev}
+
+## Dataframe of std dev
+
+gl.2014.conc.dcast.sd.df <- dcast(gl.2014.plastics.conc.df, station ~ size_fraction_um, value.var = 'total_conc_km2', sd, drop = TRUE, na.rm = TRUE)
+
+gl.2014.conc.dcast.sd.df <- gl.2014.conc.dcast.sd.df[, c('station', '100-1000', '1000-4750', '>4750')]
+
+datatable(gl.2014.conc.dcast.sd.df, 
+          options = list(
+            pageLength = 10,
+            autoWidth = TRUE),
+            caption = "Standard deviation in station concentrations"
+) %>%
+  formatRound(c('100-1000','1000-4750','>4750'), 2)
+```
+
+```{r calc_gl_2014_mean_conc_stn_stdev_melt}
+
+## Create long format dataframe for plotting
+
+gl.2014.conc.melt.sd.df <- melt(gl.2014.conc.dcast.sd.df, id.vars = "station", variable.name = "size_fraction", value.name = "sd_in_station_concentration")
+
+gl.2014.conc.melt.sd.df <- na.omit(gl.2014.conc.melt.sd.df)
+
+```
+
+```{r plot_gl_2014_stdev_plastic_conc_by_size}
+
+sdplot <- ggplot(data = gl.2014.conc.melt.sd.df, aes(x = size_fraction, y = sd_in_station_concentration))
+sdplot + 
+  geom_boxplot(aes(fill = size_fraction, alpha = .1)) + 
+  scale_y_log10(breaks = c(100, 1000, 10000, 100000, 100000, 1000000)) +
+  coord_trans(y = "log10") + 
+  labs(x= "", y = "Within station std dev in plastic concentration (/km2)", title = "Within station std dev in plastic concentration by plastic size") + 
+  expand_limits(y=c(100, 1000000)) + 
+  theme(axis.text.x = element_text(size = 12), axis.text.y = element_text(size = 10), axis.title.y = element_text(size = 12), plot.title = element_text(size = 14)) + 
+  scale_fill_manual(values = fracpal) + 
+  theme(legend.position="none")
+
+```
+
+* Zero values (n = 22) removed for some reason, I can't figure out how to fix it right now
+
+```{r summarize_gl_2014_station_sd_mean_sd_by_size}
+## Create table of means/sd's of station sd's
+
+ddply(gl.2014.conc.melt.sd.df, 
+      ~ size_fraction, 
+      plyr::summarize, 
+      mean=mean(sd_in_station_concentration), 
+      sd=sd(sd_in_station_concentration), 
+      min=min(sd_in_station_concentration), 
+      max = max(sd_in_station_concentration)
+      )
+
+```
+
+```{r summary_gl_2014_station_sd_in_mean_conc}
+
+pairwise.t.test(x = gl.2014.conc.melt.sd.df$sd_in_station_concentration, g = gl.2014.conc.melt.sd.df$size_fraction, p.adj = "bonf")
+
+```
+
+## Standard error of mean within station mean concentrations
+
+```{r calc_gl_2014_conc_stn_stderror}
+
+## Dataframe of std error
+
+gl.2014.conc.dcast.se.df <- dcast(gl.2014.plastics.conc.df, station ~ size_fraction_um, value.var = 'total_conc_km2', se, drop = TRUE, na.rm = TRUE)
+
+gl.2014.conc.dcast.se.df <- gl.2014.conc.dcast.se.df[, c('station', '100-1000', '1000-4750', '>4750')]
+
+datatable(gl.2014.conc.dcast.se.df, 
+          options = list(
+            pageLength = 10,
+            autoWidth = TRUE),
+            caption = "Standard error of mean in station concentrations"
+) %>%
+  formatRound(c('100-1000','1000-4750','>4750'), 2)
+```
+
+```{r calc_gl_2014_mean_conc_stn_stderror_melt}
+
+gl.2014.conc.melt.se.df <- melt(gl.2014.conc.dcast.se.df, id.vars = "station", variable.name = "size_fraction", value.name = "se_in_station_concentration")
+
+gl.2014.conc.melt.se.df <- na.omit(gl.2014.conc.melt.se.df)
+
+```
+
+```{r plot_gl_2014_se_plastics_conc_by_size}
+
+seplot <- ggplot(data = gl.2014.conc.melt.se.df, aes(x = size_fraction, y = se_in_station_concentration))
+
+seplot + 
+  geom_boxplot(aes(fill = size_fraction, alpha = .1)) +
+  scale_y_log10(breaks = c(100, 1000, 10000, 100000, 100000, 1000000)) +
+  coord_trans(y = "log10") + 
+  labs(x= "", y = "Within station std error of mean plastic concentration (/km2)", title = "Within station std error of mean plastic concentration by plastic size") + 
+  expand_limits(y=c(100, 1000000)) + 
+  theme(axis.text.x = element_text(size = 12), axis.text.y = element_text(size = 10), axis.title.y = element_text(size = 12), plot.title = element_text(size = 14)) + 
+  scale_fill_manual(values = fracpal) + 
+  theme(legend.position="none")
+
+```
+
+* Zero values (n = 22) removed for some reason, I can't figure out how to fix it right now
+
+```{r summarize_gl_2014_station_se_mean_sd_by_size}
+## Create table of means/sd's of station se's
+
+ddply(gl.2014.conc.melt.se.df, 
+      ~ size_fraction, 
+      plyr::summarize, 
+      mean=mean(se_in_station_concentration), 
+      sd=sd(se_in_station_concentration), 
+      min=min(se_in_station_concentration), 
+      max = max(se_in_station_concentration)
+      )
+
+```
+
+```{r summary_gl_2014_station_se_in_mean_conc}
+
+pairwise.t.test(x = gl.2014.conc.melt.se.df$se_in_station_concentration, g = gl.2014.conc.melt.se.df$size_fraction, p.adj = "bonf")
+
+```
+
+## Variation in within station mean concentrations
+
+```{r calc_gl_2014_conc_stn_var}
+
+## Dataframe of variance
+
+gl.2014.conc.dcast.var.df <- dcast(gl.2014.plastics.conc.df, station ~ size_fraction_um, value.var = 'total_conc_km2', var, drop = TRUE, na.rm = TRUE)
+
+gl.2014.conc.dcast.var.df <- gl.2014.conc.dcast.var.df[, c('station', '100-1000', '1000-4750', '>4750')]
+
+datatable(gl.2014.conc.dcast.var.df, 
+          options = list(
+            pageLength = 10,
+            autoWidth = TRUE),
+            caption = "Variation in station concentrations"
+) %>%
+  formatRound(c('100-1000','1000-4750','>4750'), 2)
+```
+
+```{r calc_gl_2014_mean_conc_stn_var_melt}
+
+## Create long format dataframe for plotting
+
+gl.2014.conc.melt.var.df <- melt(gl.2014.conc.dcast.var.df, id.vars = "station", variable.name = "size_fraction", value.name = "variance_in_station_concentration", na.rm = TRUE)
+
+gl.2014.conc.melt.var.df <- na.omit(gl.2014.conc.melt.var.df)
+
+```
+
+```{r plot_gl_2014_var_plastics_conc_by_size}
+
+varplot <- ggplot(data = gl.2014.conc.melt.var.df, aes(x = size_fraction, y = variance_in_station_concentration))
+varplot + 
+  geom_boxplot(aes(fill = size_fraction, alpha = .1)) + 
+  scale_y_log10(breaks = c(100000, 1000000, 10000000, 100000000, 1000000000, 10000000000, 100000000000, 1000000000000)) + 
+  coord_trans(y = "log10") + 
+  labs(x= "", y = "Within station var in plastic concentration", title = "Within station var in plastic concentration by plastic size") + 
+  expand_limits(y=100000) + 
+  theme(axis.text.x = element_text(size = 12), axis.text.y = element_text(size = 10), axis.title.y = element_text(size = 12), plot.title = element_text(size = 14)) + 
+  scale_fill_manual(values = fracpal) + 
+  theme(legend.position="none")
+
+```
+
+* Zero values (n = 22) removed for some reason, I can't figure out how to fix it right now
+
+```{r summarize_gl_2014_station_var_mean_sd_by_size}
+## Create table of means/sd's of station se's
+
+ddply(gl.2014.conc.melt.var.df, 
+      ~ size_fraction, 
+      plyr::summarize, 
+      mean=mean(variance_in_station_concentration), 
+      sd=sd(variance_in_station_concentration), 
+      min=min(variance_in_station_concentration), 
+      max = max(variance_in_station_concentration)
+      )
+
+```
+
+```{r pairwisettest_gl_2014_station_var_in_mean_conc}
+
+pairwise.t.test(x = gl.2014.conc.melt.var.df$variation_in_station_concentration, g = gl.2014.conc.melt.var.df$size_fraction, p.adj = "bonf")
+
+```
+
+# Data by individual trawl
+
+## Trawl metadata
+
+```{r table_gl_2014_metadata}
+
+gl.2014.weather.data <- read_csv("~/Box Sync/Duhaime Lab/R projects/gl_2014_count_data/20161013_gl_2014_trawl_metadata_for_R.csv")
+
+## Rearrange factor levels for station type and water body
+
+gl.2014.weather.data$water_body <- factor(gl.2014.weather.data$water_body, levels = c("Lake Superior", "Lake Huron", "Lake St. Clair", "Detroit Rv.", "Lake Erie", "Niagara Rv."))
+
+gl.2014.weather.data$station_class <- factor(gl.2014.weather.data$station_class, levels = c("Basin", "Non urban", "Urban", "River plume", "WWTP distal", "WWTP near"))
+
+datatable(gl.2014.weather.data, options = list(
+  pageLength = 10,
+  autoWidth = TRUE),
+  caption = "Station metadata"
+)
+
+```
+
+```{r merge_gl_2014_concentrations_metadata}
+## Merge databases for correlations and plotting
+
+gl.2014.all.data <- merge(gl.2014.plastics.conc.df, gl.2014.weather.data, by = c("trawl","station"), all.x = TRUE, suffixes = c(".x", ".y"))
+
+```
+
+```{r merge_gl_2014_concentrations_by_size_class_metadata}
+
+gl.2014.conc.by.size.metadata <- merge(gl.2014.conc.dcast.df, gl.2014.weather.data, by = c("trawl","station"), all.x = TRUE, suffixes = c(".x", ".y"))
+
+```
+
+
+## Correlogram of numerical metadata and concentrations, all class sizes combined
+
+```{r plot_gl_2014_corrgram_concentrations_metadata_numeric_only}
+
+## corrgram only uses numeric variables, so I pull those out into their own dataframe first
+
+gl.2014.all.data.numeric.only<- gl.2014.all.data[sapply(gl.2014.all.data, is.numeric)]
+
+## Create a corrgram with shade and pie charts
+
+gl_2014_numeric_corrgram_lab <- as.character(colnames(gl.2014.all.data.numeric.only))
+
+
+corrg_label_numbers <- c(1:length(gl_2014_numeric_corrgram_lab))
+
+corrgram.gl.2014.conc.metadata.num.only <- corrgram(gl.2014.all.data.numeric.only, 
+  lower.panel=panel.shade,
+  upper.panel=panel.pie, 
+  text.panel=panel.txt,
+  labels = corrg_label_numbers,
+  cex.labels = 1
+  )
+
+```
+
+```{r table_gl_2014_corrgram_label_legend}
+
+table.corrg.nums.labs <- data.frame(Number = corrg_label_numbers, Variable = gl_2014_numeric_corrgram_lab)
+
+kable(table.corrg.nums.labs, format = "markdown")
+```
+
+## Correlation between 100-1000um and 1000-4750um size fraction total concentrations
+
+```{r data_gl_2014_remove_non_size_class_conc}
+
+# Remove all trawls with no 100-1000um data
+gl.2014.conc.dcast.naomit.df <- na.omit(gl.2014.conc.dcast.df)
+
+# Remove the <4750um column, they were all zeroes
+gl.2014.conc.dcast.naomit.smallesttwo.df <- gl.2014.conc.dcast.naomit.df[,1:4]
+
+```
+
+There are currently `r nrow(gl.2014.conc.dcast.naomit.smallesttwo.df)` trawls with data for all three classes, of those, `r nrow(gl.2014.conc.dcast.naomit.df[,'>4750' == 0]) ` have counts of zero for the >4750 fraction, so I removed the >4750 column from analysis.
+
+```{r plot_gl_2014_pearsons_corrgram_size_classes}
+
+corrgram.gl.2014.size.classes.pearson <- corrgram(gl.2014.conc.dcast.naomit.smallesttwo.df, 
+  lower.panel=panel.shade,
+  upper.panel=panel.pie, 
+  text.panel=panel.txt,
+  cex.labels = 1,
+  cor.method = 'pearson'
+  )
+
+cor.test(x = gl.2014.conc.dcast.naomit.smallesttwo.df$'1000-4750', y = gl.2014.conc.dcast.naomit.smallesttwo.df$'100-1000', method = 'pearson')
+
+```
+
+```{r plot_gl_2014_spearman_corrgram_size_classes}
+
+corrgram.gl.2014.size.classes.spearman <- corrgram(gl.2014.conc.dcast.naomit.smallesttwo.df, 
+  lower.panel=panel.shade,
+  upper.panel=panel.pie, 
+  text.panel=panel.txt,
+  cex.labels = 1,
+  cor.method = 'spearman'
+  )
+
+cor.test(x = gl.2014.conc.dcast.naomit.smallesttwo.df$'1000-4750', y = gl.2014.conc.dcast.naomit.smallesttwo.df$'100-1000', method = 'spearman', exact = TRUE)
+
+```
+
+```{r plot_gl_2014_kendall_corrgram_size_classes}
+
+corrgram.gl.2014.size.classes.kendall <- corrgram(gl.2014.conc.dcast.naomit.smallesttwo.df, 
+  lower.panel=panel.shade,
+  upper.panel=panel.pie, 
+  text.panel=panel.txt,
+  cex.labels = 1,
+  cor.method = 'kendall'
+  )
+
+cor.test(x = gl.2014.conc.dcast.naomit.smallesttwo.df$'1000-4750', y = gl.2014.conc.dcast.naomit.smallesttwo.df$'100-1000', method = 'kendall', exact = TRUE)
+
+```
+
+<!--- ## Correlogram of numerical metadata and concentrations, size class totals --->
+
+<!--- ```{r plot_gl_2014_corrgram_concentrations_by_size_metadata_numeric_only}
+
+## corrgram only uses numeric variables, so I pull those out into their own dataframe first
+
+gl.2014.conc.by.size.metadata.numeric.only<- gl.2014.conc.by.size.metadata[sapply(gl.2014.conc.by.size.metadata, is.numeric)]
+
+head(gl.2014.conc.by.size.metadata.numeric.only)
+
+## Create a corrgram with shade and pie charts
+
+gl_2014_by_size_numeric_corrgram_lab <- as.character(colnames(gl.2014.conc.by.size.metadata.numeric.only))
+
+
+corrg_label_numbers_v2 <- c(1:length(gl_2014_by_size_numeric_corrgram_lab))
+
+corrgram.gl.2014.conc.by.size.metadata.num.only <- corrgram(gl.2014.conc.by.size.metadata.numeric.only, 
+  lower.panel=panel.shade,
+  upper.panel=panel.pie, 
+  text.panel=panel.txt,
+  labels = corrg_label_numbers_v2,
+  cex.labels = 1
+  )
+
+```
+--->
+
+<!--- ```{r table_gl_2014_corrgram_by_size_label_legend}
+
+table.corrg.by.size.nums.labs <- data.frame(Number = corrg_label_numbers_v2, Variable = gl_2014_by_size_numeric_corrgram_lab)
+
+kable(table.corrg.by.size.nums.labs, format = "markdown")
+``` 
+--->
+
+## Plots of non-numeric data across size classes
+
+```{r create_gl_2014_conc_w_nonnumeric_metadata}
+
+## Create dataframe of only nonnumeric trawl data
+
+gl.2014.trawl.data.nonnumeric<- gl.2014.weather.data[sapply(gl.2014.weather.data, function(x) !is.numeric(x))]
+
+# Merge with trawl concentration data
+
+gl.2014.all.data.nonnumeric <- merge(gl.2014.plastics.conc.df, 
+                                     gl.2014.trawl.data.nonnumeric, 
+                                     by = c("trawl","station"), 
+                                     all.x = TRUE, 
+                                     suffixes = c(".x", ".y"))
+
+```
+
+```{r create_gl_2014_conc_w_nonnumeric_metadata_long_format}
+
+gl.all.data.nonnumeric.long <- melt(gl.2014.all.data.nonnumeric, value.vars = c('fragment_conc_km2', 'film_conc_km2', 'fiber_conc_km2', 'filament_conc_km2', 'nurdle_conc_km2', 'sphere_conc_km2', 'foam_conc_km2', 'paint_conc_km2', 'total_conc_km2'), value.name = "concentration", variable.name = "plastic_type")
+
+View(gl.all.data.nonnumeric.long)
+```
+
+```{r plot_gl_2014_plastic_types_conc_by_station_type_water_body}
+
+library(plyr)
+ggplot(data = gl.all.data.nonnumeric.long) +
+  geom_jitter(aes(x = size_fraction_um, 
+                  y = concentration, 
+                  #shape = size_fraction_um, 
+                  color = station_class, 
+                  fill = station_class), subset = .(plastic_type != 'trawl_start_time')) +
+  scale_y_log10(breaks = c(100, 1000, 10000, 100000, 100000, 1000000)) + 
+  facet_grid(.~ plastic_type) +
+  theme(axis.text.x = element_text(size = 10, angle = 45, hjust = 1))
+
+
+ggplot(data = gl.all.data.nonnumeric.long) +
+  geom_jitter(aes(x = size_fraction_um, 
+                  y = concentration, 
+                  #shape = size_fraction_um, 
+                  color = station_class, 
+                  fill = station_class)) +
+  scale_y_log10(breaks = c(100, 1000, 10000, 100000, 100000, 1000000)) + 
+  #facet_grid(.~ plastic_type) +
+  theme(axis.text.x = element_text(size = 10, angle = 45, hjust = 1))
+
+  ggplot(data = gl.all.data.nonnumeric.long) +
+  geom_jitter(aes(x = size_fraction_um, 
+                  y = concentration, 
+                  #shape = size_fraction_um, 
+                  color = plastic_type, 
+                  fill = plastic_type)) +
+  scale_y_log10(breaks = c(100, 1000, 10000, 100000, 100000, 1000000)) + 
+  #facet_grid(.~ plastic_type) +
+  theme(axis.text.x = element_text(size = 10, angle = 45, hjust = 1))
+
+
+```
+
+```{r plot_gl_2014_conc_by_station_type_and_size_}
+
+ggplot(data = gl.2014.all.data) + 
+  geom_boxplot(aes(y = total_conc_km2, x = station_class)) + 
+  facet_grid(.~ size_fraction_um, scales="free") + 
+  theme(axis.text.x = element_text(size = 10, angle = 45, hjust = 1))
+
+```
+
+```{r summary_gl_2014_conc_by_station_type_and_size}
+
+gl.2014.conc.mean.by.stn.type.size.class <- dcast(gl.2014.all.data, station_class ~ size_fraction_um, mean, value.var = 'total_conc_km2', na.rm = TRUE)
+
+datatable(gl.2014.conc.mean.by.stn.type.size.class, 
+          options = list(
+            pageLength = 6,
+            autoWidth = TRUE),
+          caption = "Mean concentrations by station type"
+) %>%
+  formatRound(c('100-1000','1000-4750','>4750'), 2)
+```
+
+```{r summary_gl_2014_conc_by_station_type_and_size_sd}
+
+gl.2014.conc.sd.by.stn.type.size.class.sd <- dcast(gl.2014.all.data, station_class ~ size_fraction_um, sd, value.var = 'total_conc_km2', na.rm = TRUE)
+
+datatable(gl.2014.conc.sd.by.stn.type.size.class.sd, 
+          options = list(
+            pageLength = 6,
+            autoWidth = TRUE),
+          caption = "Std dev in mean concentrations by station type"
+) %>%
+  formatRound(c('100-1000','1000-4750','>4750'), 2)
+```
+
+```{r plot_gl_2014_conc_by_water_body_and_size}
+
+ggplot(data = gl.2014.all.data) + 
+  geom_boxplot(aes(y = total_conc_km2, x = water_body)) + 
+  facet_grid(.~ size_fraction_um, scales="free") + 
+  theme(axis.text.x = element_text(size = 6, angle = 45, hjust = 1))
+
+```
+
+```{r summary_gl_2014_conc_by_water_body_and_size}
+
+gl.2014.conc.mean.by.water.body.size.class <- dcast(gl.2014.all.data, water_body ~ size_fraction_um, mean, value.var = 'total_conc_km2', na.rm = TRUE)
+
+datatable(gl.2014.conc.mean.by.water.body.size.class, 
+          options = list(
+            pageLength = 6,
+            autoWidth = TRUE),
+          caption = "Mean concentrations by water body"
+) %>%
+  formatRound(c('100-1000','1000-4750','>4750'), 2)
+```
+
+```{r summary_gl_2014_conc_by_water_body_and_size_sd}
+
+gl.2014.conc.sd.by.stn.type.size.class.sd <- dcast(gl.2014.all.data, water_body ~ size_fraction_um, sd, value.var = 'total_conc_km2', na.rm = TRUE)
+
+datatable(gl.2014.conc.sd.by.stn.type.size.class.sd, 
+          options = list(
+            pageLength = 6,
+            autoWidth = TRUE),
+          caption = "Std dev in mean concentrations by water body"
+) %>%
+  formatRound(c('100-1000','1000-4750','>4750'), 2)
+```
+
+```{r plot_gl_2014_conc_by_trawl_date_and_size}
+
+ggplot(data = gl.2014.all.data) + 
+  geom_boxplot(aes(y = total_conc_km2, x = trawl_date)) + 
+  facet_grid(.~ size_fraction_um, scales="free") + 
+  theme(axis.text.x = element_text(size = 6, angle = 45, hjust = 1))
+
+```
+
+```{r plot_gl_2014_conc_by_trawl_time_and_size}
+
+ggplot(data = gl.2014.all.data) + 
+  geom_boxplot(aes(y = total_conc_km2, x = trawl_start_time)) + 
+  facet_grid(.~ size_fraction_um, scales="free") + 
+  theme(axis.text.x = element_text(size = 6, angle = 45, hjust = 1))
+
+```
